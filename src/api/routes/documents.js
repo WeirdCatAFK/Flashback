@@ -164,11 +164,14 @@ router.get(
 
 router.get(
   "/export",
-  catchError((req, res) => {
+  catchError((req, res, next) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
     const zipPath = Documents.exportPackage(relPath);
-    res.download(zipPath, path.basename(zipPath));
+    res.download(zipPath, path.basename(zipPath), (err) => {
+      fs.rm(zipPath, { force: true }).catch(() => {});
+      if (err && !res.headersSent) next(err);
+    });
   }),
 );
 

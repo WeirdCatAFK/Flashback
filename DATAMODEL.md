@@ -8,8 +8,8 @@ Flashback keeps data in four stores.
 
 | Store | Location | Holds | Durability |
 | --- | --- | --- | --- |
-| Portable files | `{vault}/workspace/` | Documents, `.flashback` sidecars, decks, media, diary entries and categories | Irreplaceable. Seal versions it. |
-| Progress store | `{vault}/progress.db` | Schedules, review history, card health, FSRS weights and read positions of each person | Irreplaceable. Not versioned. |
+| Portable files | `{vault}/workspace/` | Documents, `.flashback` sidecars, decks, media and categories | Irreplaceable. Seal versions it. |
+| Progress store | `{vault}/progress.db` | Schedules, review history, card health, FSRS weights, read positions and diary entries of each person | Irreplaceable. Not versioned. |
 | Accounts store | `{baseDir}/accounts.db` | The accounts that can reach this install, and their roles | Irreplaceable. Not versioned. |
 | Derived index | `{vault}/{vaultName}.db` | A queryable copy of the portable files | The Vault Doctor rebuilds it from the portable files. |
 
@@ -32,7 +32,6 @@ A vault is a named directory. `config.json` lists the vaults in `vaults[]` and n
     vault.json              vault identity
     workspace/              portable files, and the root of the Seal repository
       _decks/               deck files
-      _diary/               diary entries
       _categories.json      the categories
     {vaultName}.db          derived index
     progress.db             progress store
@@ -221,7 +220,7 @@ A Markdown document links to another document with `[text](flashback://<globalHa
 
 ## Seal
 
-Seal is the git history of `workspace/`. It tracks documents, sidecars, media, decks, diary entries and categories. It does not track the derived index, the progress store, `vault.json` or `config.json`.
+Seal is the git history of `workspace/`. It tracks documents, sidecars, media, decks and categories. It does not track the derived index, the progress store with its diary entries, `vault.json` or `config.json`.
 
 A commit message has the form `<action>: <path>`. One user action makes one commit.
 
@@ -237,18 +236,13 @@ Grading a card writes no file and makes no commit. A rollback rewinds `workspace
 
 ## Diary
 
-The diary is an optional daily record of study. Its entries are portable files. Flashback derives its summaries.
+The diary is an optional daily record of study. Its entries are personal data, so they live in the progress store and not in the shared portable files. Flashback derives its summaries.
 
-```
-workspace/_diary/
-  owner/YYYY-MM-DD.md               the owner's notes for a day
-  <accountId>/YYYY-MM-DD.md         the notes of each other account
-  <accountId>/.flashback            the folder sidecar: createdBy and accountId
-```
-
-- The explorer, search, the graph and the documents API never reach `_diary/`, `_decks/` or `_categories.json`. Only their own modules read them, and the diary routes check access.
-- An account id belongs to the install's accounts store. After a vault moves to another install, `owner/` maps to the new owner, and the `createdBy` line still names the writer of every other folder.
-- An older build kept the diary in `{vault}/diary/`, as its own git repository. The first start of a newer build copies the entries into `_diary/` and renames the old folder to `diary.legacy`.
+- The `DiaryEntries` table holds one row for each account and day. The `content` column is Markdown.
+- Only the writer reads an entry. The vault's author reads the daily summaries of other people, and no entry.
+- A vault export puts the progress store in its own zip, apart from the portable files.
+- Older builds kept the entries as files, in `{vault}/diary/` and then in `workspace/_diary/`. The first start of a newer build copies them into the table and keeps the files in `{vault}/diary.legacy`. The Seal history of a vault that had `workspace/_diary/` still holds the old text.
+- The explorer, search, the graph and the documents API never reach `_diary/`, `_decks/`, `_categories.json` or `.git` in the workspace, under any spelling of the name.
 
 ### Summary
 
@@ -300,7 +294,7 @@ A desktop install has one author account, made from the local identity. Its toke
 
 ### Scope
 
-Every row has an account scope and the hash of a card or document. The scope is an account id, or the literal `owner` for the vault's author. The value `owner` is not an account id, because account ids do not travel with a copied vault.
+Every row has an account scope. Every row except a `DiaryEntries` row also has the hash of a card or document. The scope is an account id, or the literal `owner` for the vault's author. The value `owner` is not an account id, because account ids do not travel with a copied vault.
 
 No foreign key crosses from this store to the derived index. A card that leaves a sidecar keeps its progress rows. Only an explicit card delete deletes them. Deleting an account keeps its rows.
 
@@ -314,6 +308,7 @@ A missing `CardProgress` row means that the person never reviewed the card.
 | `ReviewLogs` | `id` | One row for each review |
 | `FsrsParameters` | `account_id` | One person's fitted FSRS-6 weights |
 | `ReadProgress` | `account_id`, `doc_hash` | How far one person read in one document |
+| `DiaryEntries` | `account_id`, `date` | What one person wrote on one day |
 | `CardHealth` | `account_id`, `card_hash` | The start of the window that card health analysis reads |
 | `CardFlags` | `account_id`, `card_hash`, `kind` | Each raised card health flag |
 

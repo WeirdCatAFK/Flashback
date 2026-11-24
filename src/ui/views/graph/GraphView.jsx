@@ -11,7 +11,8 @@ import {
   linkColorsFor, linkColor, linkDash,
 } from './paint.js';
 import { readGraphPalette } from './palette.js';
-import { datestamp, downloadBlob, exportJson, exportShape, generateGraphHtml } from './export.js';
+import { downloadBlob } from '../../utils/download.js';
+import { datestamp, exportJson, exportShape, generateGraphHtml } from './export.js';
 import useGraph from './useGraph';
 import useGraphAnimation from './useGraphAnimation';
 import useGraphSelection from './useGraphSelection';

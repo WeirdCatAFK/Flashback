@@ -32,10 +32,6 @@ export function getAccountLogSummary(id, date) {
   return request("GET", `/api/accounts/${encodeURIComponent(id)}/logs/summary/${date}`);
 }
 
-export function getAccountLogEntry(id, date) {
-  return request("GET", `/api/accounts/${encodeURIComponent(id)}/logs/entry/${date}`);
-}
-
 export function issueToken(accountId, label = "") {
   return request(
     "POST",

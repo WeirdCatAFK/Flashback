@@ -1,4 +1,4 @@
-import { request } from "./client.js";
+import { request, download } from "./client.js";
 
 export const generateSummary = (date) =>
   request("POST", "/api/diary/summary", date ? { date } : {});
@@ -17,6 +17,8 @@ export const getSummary = (date) =>
   request("GET", `/api/diary/summary/${date}`);
 
 export const getEntry = (date) => request("GET", `/api/diary/entry/${date}`);
+
+export const exportEntries = () => download("/api/diary/export");
 
 export const saveEntry = (date, content) =>
   request("PUT", `/api/diary/entry/${date}`, { content });

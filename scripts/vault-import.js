@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-/** Imports a zip from npm run vault:export into a new server vault. Stop the server first. */
+/** Imports the zips from npm run vault:export into a new server vault. Stop the server first. */
 import path from 'path';
 import { applyServerConfig } from '../src/server/serverConfig.js';
 
-const [zip] = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const [zip, personal] = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 if (!zip || process.argv.includes('--help')) {
-    console.log('Usage: npm run vault:import -- <zip>');
+    console.log('Usage: npm run vault:import -- <zip> [personal zip]');
     console.log('Stop the server first. The import refuses a vault that already holds documents or progress.');
     process.exit(process.argv.includes('--help') ? 0 : 1);
 }
@@ -13,7 +13,7 @@ if (!zip || process.argv.includes('--help')) {
 const { config } = applyServerConfig();
 const { importVault } = await import('./vaultMove.js');
 try {
-    const result = await importVault(path.resolve(zip));
+    const result = await importVault(path.resolve(zip), personal ? path.resolve(personal) : null);
     console.log(`Imported into vault "${config.vaultName}".`);
     const { documentsIndexed, flashcards } = result.summary;
     console.log(`Rebuilt the index: ${documentsIndexed} document(s), ${flashcards} card(s).`);

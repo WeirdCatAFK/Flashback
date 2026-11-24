@@ -55,8 +55,8 @@ export const CAPABILITIES = {
     switchVault:      { minimum: ROLES.AUTHOR, guards: [["vault", "POST", "/switch"]] },
     manageRemotes:    { minimum: ROLES.AUTHOR, guards: [["remotes", "GET", "/"]] },
     rotatePureToken:  { minimum: ROLES.AUTHOR, guards: [["accounts", "POST", "/pure-token"]] },
-    readAllLogs:      { minimum: ROLES.AUTHOR, guards: [["accounts", "GET", "/abc123/logs"], ["accounts", "GET", "/abc123/logs/entry/2026-01-01"]],
-        note: "Logs hold private writing; only the server's owner is told they may read them." },
+    readAllLogs:      { minimum: ROLES.AUTHOR, guards: [["accounts", "GET", "/abc123/logs"], ["accounts", "GET", "/abc123/logs/summary/2026-01-01"]],
+        note: "Daily summaries only. An entry belongs to its writer, and no role reads another person's." },
 };
 
 export function can(role, capability) {

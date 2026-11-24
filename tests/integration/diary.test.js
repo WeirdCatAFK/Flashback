@@ -4,18 +4,19 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
+import AdmZip from 'adm-zip';
 import validate from '../../src/api/config/validate.js';
 import * as Documents from '../../src/api/access/modules/documents.js';
 import * as Decks from '../../src/api/access/modules/decks.js';
-import * as Files from '../../src/api/access/resources/files.js';
+import * as Doctor from '../../src/api/access/modules/doctor.js';
 import db from '../../src/api/access/primitives/database.js';
 import * as deckRows from '../../src/api/access/resources/db/decks.js';
-import * as documentRows from '../../src/api/access/resources/db/documents.js';
 import * as statisticsRows from '../../src/api/access/resources/db/statistics.js';
 import * as diaryRows from '../../src/api/access/resources/db/diary.js';
 import * as Diary from '../../src/api/access/modules/diary.js';
 import { sealTools, sealEmitter } from '../../src/api/seal/seal.js';
 import { getVaultPath, getWorkspacePath } from '../../src/api/access/primitives/config.js';
+import { runWithAccount } from '../../src/api/requestContext.js';
 import { testDataDir } from '../support/testData.js';
 
 process.env.USER_DATA_PATH = testDataDir('diary');
@@ -31,7 +32,7 @@ const NEXT = '2026-06-02';
 const hashes = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 
 const diaryRoot = () => path.join(getWorkspacePath(), '_diary');
-const ownerEntry = (day) => path.join(diaryRoot(), 'owner', `${day}.md`);
+const asAccount = (id, fn) => runWithAccount({ id, role: 'reader', name: id, email: `${id}@example.invalid` }, fn);
 
 const cleanup = async () => {
     try {
@@ -39,7 +40,7 @@ const cleanup = async () => {
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
     } catch {  }
     try {
-        if (fs.existsSync(diaryRoot())) fs.rmSync(diaryRoot(), { recursive: true, force: true });
+        await db.prepare('DELETE FROM progress.DiaryEntries').run();
     } catch {  }
     try {
         await db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') IN (?, ?)").run(DAY, NEXT);
@@ -107,7 +108,6 @@ describe('Diary storage layer', () => {
         assert.ok(Array.isArray(s.byDeck));
 
         assert.ok(await diaryRows.getSummary(DAY, 'owner'), 'a past day is cached in the index');
-        assert.ok(!fs.existsSync(path.join(diaryRoot(), 'owner', 'summaries')), 'no summary file is written');
     });
 
     it('is idempotent: regenerating a past date reproduces the same file (modulo generatedAt)', async () => {
@@ -123,48 +123,55 @@ describe('Diary storage layer', () => {
         assert.equal(await diaryRows.getSummary(NEXT, 'owner'), null);
     });
 
-    it('lives in _diary/, which the walk, the index, search and the documents API never reach', async () => {
+    it('keeps an entry out of the workspace, and out of Seal', async () => {
+        const commits = (await sealTools.log(500)).length;
         await Diary.saveEntry('2026-06-03', 'a private note');
-        assert.ok(!Files.listFolder('').some((e) => e.name === '_diary'), 'the explorer listing hides _diary');
-        assert.throws(() => Files.safePath(path.join('_diary', 'owner', `${DAY}.md`)), { code: 'reserved_path' });
+        await sealEmitter.flushEdits();
 
-        const walk = Files.walkWorkspace();
-        const walked = [...walk.folders, ...walk.documents].map(e => e.relPath);
-        assert.ok(walked.every(p => !p.toLowerCase().includes('diary')), 'walkWorkspace excludes diary');
-
-        const norm = (p) => (p || '').replace(/\\/g, '/');
-        const diaryAbs = norm(diaryRoot());
-        const under = (await documentRows.getAll()).filter(d => norm(d.absolute_path).startsWith(diaryAbs));
-        assert.equal(under.length, 0, 'no Documents rows point under diary/');
-
-        const results = await Documents.search('summary');
-        assert.ok(results.every(r => !norm(r.relative_path).startsWith(diaryAbs)));
+        assert.ok(!fs.existsSync(diaryRoot()), 'no entry reaches the shared files');
+        assert.equal((await sealTools.log(500)).length, commits, 'and Seal commits nothing');
+        assert.equal((await Documents.search('private note')).length, 0);
     });
 
-    it('saves and reads back a markdown entry, and commits it', async () => {
-        const res = await Diary.saveEntry(DAY, '# Reflection\nStudied hiragana.');
-        assert.equal(res.created, true);
-        assert.equal(Diary.getEntry(DAY), '# Reflection\nStudied hiragana.');
-        assert.ok(fs.existsSync(ownerEntry(DAY)));
-        const sidecar = JSON.parse(fs.readFileSync(path.join(diaryRoot(), 'owner', '.flashback'), 'utf-8'));
-        assert.ok(sidecar.createdBy, 'the folder sidecar names who writes in it');
+    it('gives each person only their own entries', async () => {
+        await Diary.saveEntry(DAY, 'the owner wrote this');
+        await asAccount('acct-rita', () => Diary.saveEntry(DAY, 'rita wrote this'));
+
+        assert.equal(await Diary.getEntry(DAY), 'the owner wrote this');
+        assert.equal(await asAccount('acct-rita', () => Diary.getEntry(DAY)), 'rita wrote this');
+        assert.equal(await asAccount('acct-sam', () => Diary.getEntry(DAY)), null);
+        assert.equal(await Diary.getEntry(DAY, 'acct-rita'), 'the owner wrote this', 'a second argument selects nobody else');
+    });
+
+    it('lists what another person studied, and nothing that they wrote', async () => {
+        await asAccount('acct-rita', () => Diary.saveEntry('2026-06-04', 'rita wrote this'));
+        assert.deepEqual(await Diary.listSummaries({ scope: 'acct-rita' }), [], 'a day with only an entry stays private');
+        for (const day of await Diary.listSummaries({ scope: 'owner' })) {
+            assert.deepEqual(Object.keys(day).sort(), ['date', 'hasSummary', 'reviews']);
+        }
+    });
+
+    it('exports the writer\'s own entries as Markdown', async () => {
+        const zip = new AdmZip(await asAccount('acct-rita', () => Diary.exportEntries()));
+        assert.deepEqual(zip.getEntries().map((e) => e.entryName).sort(), [`${DAY}.md`, '2026-06-04.md'].sort());
+        assert.equal(zip.readAsText(`${DAY}.md`), 'rita wrote this');
+    });
+
+    it('saves and reads back a markdown entry', async () => {
+        assert.equal((await Diary.saveEntry('2026-06-06', 'first')).created, true);
+        assert.equal((await Diary.saveEntry('2026-06-06', '# Reflection\nStudied hiragana.')).created, false);
+        assert.equal(await Diary.getEntry('2026-06-06'), '# Reflection\nStudied hiragana.');
+    });
+
+    it('survives a Doctor rebuild of the index', async () => {
+        await Doctor.rebuildIndex();
+        assert.equal(await Diary.getEntry('2026-06-06'), '# Reflection\nStudied hiragana.');
     });
 
     it('does not create an empty entry file for a day the user never wrote', async () => {
         const res = await Diary.saveEntry(NEXT, '   ');
         assert.equal(res.created, false);
-        assert.equal(Diary.getEntry(NEXT), null);
-        assert.ok(!fs.existsSync(ownerEntry(NEXT)));
-    });
-
-    it('lets Seal version the entries with the other portable files', async () => {
-        await sealEmitter.flushEdits();
-        const touched = [];
-        for (const c of await sealTools.log(50)) {
-            const diff = await sealTools.commitFiles(c.oid);
-            touched.push(...diff.added, ...diff.modified);
-        }
-        assert.ok(touched.includes(`_diary/owner/${DAY}.md`), 'a Seal commit holds the entry');
+        assert.equal(await Diary.getEntry(NEXT), null);
     });
 
     it('lists diary dates newest-first with per-kind flags', async () => {
@@ -278,22 +285,51 @@ describe('Diary by-deck breakdown', () => {
 
 describe('Diary from an older build', () => {
     const legacyRoot = () => path.join(getVaultPath(), 'diary');
+    const keptFolders = () => fs.readdirSync(getVaultPath()).filter((n) => n.startsWith('diary.legacy'));
 
-    before(() => {
+    before(async () => {
+        await db.prepare('DELETE FROM progress.DiaryEntries').run();
         fs.rmSync(legacyRoot(), { recursive: true, force: true });
-        fs.rmSync(`${legacyRoot()}.legacy`, { recursive: true, force: true });
+        for (const name of keptFolders()) fs.rmSync(path.join(getVaultPath(), name), { recursive: true, force: true });
+
         fs.mkdirSync(path.join(legacyRoot(), 'entries'), { recursive: true });
         fs.mkdirSync(path.join(legacyRoot(), 'accounts', 'acct-1', 'entries'), { recursive: true });
         fs.writeFileSync(path.join(legacyRoot(), 'entries', 'entry-2020-01-01.md'), 'owner wrote this');
         fs.writeFileSync(path.join(legacyRoot(), 'accounts', 'acct-1', 'entries', 'entry-2020-01-02.md'), 'a collaborator wrote this');
+
+        fs.mkdirSync(path.join(diaryRoot(), 'owner'), { recursive: true });
+        fs.mkdirSync(path.join(diaryRoot(), 'acct-1'), { recursive: true });
+        fs.writeFileSync(path.join(diaryRoot(), 'owner', '.flashback'), '{}');
+        fs.writeFileSync(path.join(diaryRoot(), 'owner', '2020-01-03.md'), 'written in the shared files');
+        fs.writeFileSync(path.join(diaryRoot(), 'acct-1', '2020-01-04.md'), 'theirs, in the shared files');
+        fs.writeFileSync(path.join(diaryRoot(), 'owner', '2020-01-05.md'), 'the stale copy');
+        await sealEmitter.edit('_diary/owner/2020-01-03.md', ['_diary/owner/.flashback', '_diary/acct-1/2020-01-04.md']);
+        await Diary.saveEntry('2020-01-05', 'the newer text');
     });
 
-    it('moves every entry into _diary/ once, and keeps the old folder as diary.legacy', async () => {
-        assert.equal(await Diary.adoptLegacyFolder(), 2);
-        assert.equal(Diary.getEntry('2020-01-01', 'owner'), 'owner wrote this');
-        assert.equal(Diary.getEntry('2020-01-02', 'acct-1'), 'a collaborator wrote this');
-        assert.ok(!fs.existsSync(legacyRoot()), 'the old folder moved aside');
-        assert.ok(fs.existsSync(`${legacyRoot()}.legacy`), 'and stays for a manual rollback');
-        assert.equal(await Diary.adoptLegacyFolder(), 0, 'a second run finds nothing to move');
+    it('moves every entry into the progress store, under its writer', async () => {
+        assert.equal(await Diary.adoptFiles(), 4);
+        assert.equal(await Diary.getEntry('2020-01-01'), 'owner wrote this');
+        assert.equal(await Diary.getEntry('2020-01-03'), 'written in the shared files');
+        assert.equal(await asAccount('acct-1', () => Diary.getEntry('2020-01-02')), 'a collaborator wrote this');
+        assert.equal(await asAccount('acct-1', () => Diary.getEntry('2020-01-04')), 'theirs, in the shared files');
+        assert.equal(await Diary.getEntry('2020-01-05'), 'the newer text', 'a file never replaces an entry');
+    });
+
+    it('takes the files out of the workspace and out of the Seal tree, and keeps a copy', async () => {
+        assert.ok(!fs.existsSync(diaryRoot()) && !fs.existsSync(legacyRoot()));
+        const { deleted } = await sealTools.commitFiles((await sealTools.log(1))[0].oid);
+        assert.ok(deleted.includes('_diary/owner/2020-01-03.md') && deleted.includes('_diary/acct-1/2020-01-04.md'));
+
+        const kept = keptFolders().flatMap((n) => fs.readdirSync(path.join(getVaultPath(), n), { recursive: true }));
+        for (const name of ['entry-2020-01-01.md', '2020-01-05.md']) {
+            assert.ok(kept.some((f) => f.endsWith(name)), `${name} stays for a manual rollback`);
+        }
+    });
+
+    it('does nothing on a second run', async () => {
+        const before = keptFolders().length;
+        assert.equal(await Diary.adoptFiles(), 0);
+        assert.equal(keptFolders().length, before);
     });
 });

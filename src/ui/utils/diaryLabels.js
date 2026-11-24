@@ -8,7 +8,7 @@ export function diaryLabels(t, shared) {
             title: t('Logs'),
             loading: t('Loading logs…'),
             prefLabel: t('Study log'),
-            prefHint: t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Everyone studying here shares one history, and the server’s owner can read yours. Off by default.'),
+            prefHint: t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Flashback shows what you write only to you. The server’s owner can see your daily summaries. Off by default.'),
         }
         : {
             title: t('Diary'),

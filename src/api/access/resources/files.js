@@ -39,7 +39,14 @@ export function ensureRoot() {
     return root;
 }
 
+/** Nothing writes _diary any more. A rollback can restore the one that an older build wrote, so it stays reserved. */
 const RESERVED_ENTRIES = new Set(["_decks", "_diary", "_categories.json"]);
+
+/** One folder answers to several names: any letter case, Unicode look-alikes, NTFS streams, trailing dots and 8.3 short names. */
+function _isReservedRoot(segment) {
+    const name = segment.normalize("NFKC").replace(/\p{Cf}/gu, "").split(":")[0].replace(/[. ]+$/, "").toLowerCase();
+    return name === ".git" || RESERVED_ENTRIES.has(name) || /^(git|_categ)~\d/.test(name);
+}
 
 function _resolve(anyPath) {
     const resolvedPath = path.resolve(workspaceRoot(), anyPath);
@@ -54,15 +61,34 @@ function _resolve(anyPath) {
     return { resolvedPath, root: relative.split(path.sep)[0] };
 }
 
-/** Resolves a path that a client may name. The reserved roots belong to their own modules, so this refuses them. */
+/** Resolves a path that a client may name. The reserved roots belong to their own modules, and .git to Seal, so this refuses them. */
 export function safePath(anyPath) {
     const { resolvedPath, root } = _resolve(anyPath);
-    if (RESERVED_ENTRIES.has(root)) {
+    if (_isReservedRoot(root)) {
         throw Object.assign(new Error(`${root} is managed by Flashback and cannot be addressed directly`), {
             status: 403, code: "reserved_path",
         });
     }
     return resolvedPath;
+}
+
+/** Resolves a path to an entry inside the workspace, and never to the workspace itself. */
+export function entryPath(anyPath) {
+    const abs = safePath(anyPath);
+    if (_isRoot(abs)) {
+        throw Object.assign(new Error("The workspace itself cannot be moved, copied, renamed or deleted"), {
+            status: 400, code: "workspace_root",
+        });
+    }
+    return abs;
+}
+
+function _isRoot(absPath) {
+    return path.relative(workspaceRoot(), absPath) === "";
+}
+
+export function isReserved(absPath) {
+    return _isReservedRoot(path.relative(workspaceRoot(), absPath).split(path.sep)[0]);
 }
 
 export function reservedPath(relPath) {
@@ -80,11 +106,6 @@ export function writeReserved(relPath, text) {
 export function readReserved(relPath) {
     const abs = reservedPath(relPath);
     return fs.existsSync(abs) ? fs.readFileSync(abs, "utf-8") : null;
-}
-
-export function listReserved(relPath) {
-    const abs = reservedPath(relPath);
-    return fs.existsSync(abs) ? fs.readdirSync(abs) : [];
 }
 
 function mediaName(name) {
@@ -380,7 +401,7 @@ export function rename(relPath, newName, isFolder = false) {
     const lower = newName.trim().toLowerCase();
     if (lower === '.flashback' || lower.endsWith('.flashback')) throw new Error('Cannot rename to a .flashback name; it is reserved for Flashback metadata');
     if (isFolder && lower === 'media') throw new Error('Cannot rename a folder to "media"; it is reserved for flashcard assets');
-    const oldPath = safePath(relPath);
+    const oldPath = entryPath(relPath);
     const dirname = path.dirname(relPath);
     const newRel = path.join(dirname, newName);
     const newPath = safePath(newRel);
@@ -420,7 +441,7 @@ export function rename(relPath, newName, isFolder = false) {
 }
 
 export function move(relPath, newRelPath, isFolder = false) {
-    const oldPath = safePath(relPath);
+    const oldPath = entryPath(relPath);
     const newPath = safePath(newRelPath);
 
     if (!exists(relPath)) throw new Error("Source does not exist");
@@ -446,7 +467,7 @@ export function move(relPath, newRelPath, isFolder = false) {
 }
 
 export function remove(relPath, isFolder = false) {
-    const target = safePath(relPath);
+    const target = entryPath(relPath);
     if (!exists(relPath)) throw new Error("Target does not exist");
 
     try {
@@ -464,7 +485,7 @@ export function remove(relPath, isFolder = false) {
 }
 
 export function copy(relPath, newRelPath, isFolder = false) {
-    const src = safePath(relPath);
+    const src = entryPath(relPath);
     const dest = safePath(newRelPath);
 
     if (!exists(relPath)) throw new Error("Source does not exist");
@@ -767,7 +788,7 @@ export function walkWorkspace() {
 
         for (const entry of entries) {
             if (entry.name === ".git") continue;
-            if (!relPath && RESERVED_ENTRIES.has(entry.name)) continue;
+            if (!relPath && _isReservedRoot(entry.name)) continue;
             const entryRel = relPath ? path.join(relPath, entry.name) : entry.name;
 
             if (entry.isDirectory()) {
@@ -811,11 +832,12 @@ export function listFolder(relPath) {
     const folderPath = safePath(relPath);
     if (!exists(relPath)) throw new Error("Folder does not exist");
 
+    const atRoot = _isRoot(folderPath);
     const result = [];
     for (const entry of fs.readdirSync(folderPath, { withFileTypes: true })) {
         if (entry.name === ".flashback" || entry.name.endsWith(".flashback") || entry.name === ".git") continue;
         if (entry.name === "media" && entry.isDirectory()) continue;
-        if (!relPath && RESERVED_ENTRIES.has(entry.name)) continue;
+        if (atRoot && _isReservedRoot(entry.name)) continue;
         const isDir = entry.isDirectory();
         const meta = getMetadata(path.join(relPath, entry.name), isDir);
         result.push({ name: entry.name, type: isDir ? "folder" : "file", metadata: meta });

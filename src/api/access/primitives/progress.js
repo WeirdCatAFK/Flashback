@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS progress.ReadProgress (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS progress.idx_readprogress_account ON ReadProgress(account_id, updated_at);
 
+CREATE TABLE IF NOT EXISTS progress.DiaryEntries (
+    account_id  TEXT NOT NULL,
+    date        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (account_id, date)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS progress.ProgressSchemaVersion (
     version     INTEGER PRIMARY KEY,
     applied_at  TEXT NOT NULL

@@ -3,6 +3,8 @@ import { LoadingState } from '../../components/base/StateView';
 import ProgressScopePicker from '../../components/account/ProgressScopePicker';
 import { useT } from '../../translations/index';
 import { diaryLabels, isSharedVault } from '../../utils/diaryLabels.js';
+import { exportEntries } from '../../api/diary';
+import { downloadBlob } from '../../utils/download.js';
 import { todayIso } from './dates.js';
 import { ymOf } from './calendar.js';
 import useDiary from './useDiary';
@@ -64,6 +66,7 @@ export default function DiaryView({ isActive, connection, writeRequest = 0, view
         rebuilding={rebuilding}
         rebuilt={rebuilt}
         onRebuild={rebuild}
+        onExport={() => exportEntries().then((zip) => downloadBlob(zip, `flashback-diary-${today}.zip`)).catch(console.error)}
       />
       <main className="diary-main">
         <DiaryPage

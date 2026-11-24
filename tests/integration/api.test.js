@@ -2823,6 +2823,8 @@ describe('Flashback API', () => {
                 setAccess('summaries');
                 assert.equal((await mcp(`/api/diary/Entry/${DATE}`)).status, 403);
                 assert.equal((await mcp(`/api/diary/ENTRY/${DATE}`)).status, 403);
+                assert.equal((await mcp('/api/diary/export')).status, 403);
+                assert.equal((await mcp('/api/diary/Export/')).status, 403);
             });
 
             it('never gates the renderer (no MCP header), regardless of the flag', async () => {
@@ -3131,24 +3133,26 @@ describe('Flashback API', () => {
             assert.equal(res.status, 200);
         });
 
-        it("reads the Author's own logs by id, the same days and entry /api/diary serves", async () => {
+        it("lists the days a person studied, and never says what or when they wrote", async () => {
             const own = await (await fetch(`${baseUrl}/api/diary`)).json();
-            const byId = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs`)).json();
-            assert.deepEqual(byId, own);
-            assert.ok(byId.some((d) => d.date === day && d.hasEntry));
+            assert.ok(own.some((d) => d.date === day && d.hasEntry), 'precondition: the writer sees the entry');
 
-            const entry = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/${day}`)).json();
-            assert.equal(entry.content, 'Read by id.');
+            const byId = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs`)).json();
+            assert.deepEqual(byId, own.filter((d) => d.hasSummary).map(({ date, hasSummary, reviews }) => ({ date, hasSummary, reviews })));
         });
 
-        it("reads another person's logs from their own folder, not the caller's", async () => {
+        it('serves nobody else an entry, not even the author', async () => {
+            const res = await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/${day}`);
+            assert.equal(res.status, 404);
+            assert.ok(!(await res.text()).includes('Read by id.'));
+        });
+
+        it("reads another person's summaries, not the caller's", async () => {
             const created = await (await post(`${baseUrl}/api/accounts`, {
                 name: 'Logs Probe', email: `logs+${Date.now()}@example.invalid`, role: 'reader',
             })).json();
             const days = await (await fetch(`${baseUrl}/api/accounts/${created.id}/logs`)).json();
-            assert.deepEqual(days, [], 'a fresh reader has written nothing');
-            const entry = await (await fetch(`${baseUrl}/api/accounts/${created.id}/logs/entry/${day}`)).json();
-            assert.equal(entry.content, '');
+            assert.deepEqual(days, [], 'a fresh reader has studied nothing');
             const summary = await fetch(`${baseUrl}/api/accounts/${created.id}/logs/summary/${day}`);
             assert.equal(summary.status, 404);
         });
@@ -3156,7 +3160,7 @@ describe('Flashback API', () => {
         it('refuses an assistant, a malformed date and an unknown account', async () => {
             const mcp = await fetch(`${baseUrl}/api/accounts/${authorId}/logs`, { headers: { 'X-Flashback-Client': 'mcp' } });
             assert.equal(mcp.status, 403);
-            assert.equal((await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/yesterday`)).status, 400);
+            assert.equal((await fetch(`${baseUrl}/api/accounts/${authorId}/logs/summary/yesterday`)).status, 400);
             assert.equal((await fetch(`${baseUrl}/api/accounts/not-a-real-id/logs`)).status, 404);
         });
 

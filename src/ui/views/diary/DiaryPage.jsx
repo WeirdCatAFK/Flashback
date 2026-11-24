@@ -28,7 +28,7 @@ function Bars({ label, rows, nameOf }) {
   );
 }
 
-function Entry({ date, today, loading, content, onSaved, editRequest, readOnly }) {
+function Entry({ date, today, loading, content, onSaved, editRequest }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
@@ -48,7 +48,7 @@ function Entry({ date, today, loading, content, onSaved, editRequest, readOnly }
     setSeenEditRequest(editRequest);
     if (editRequest) setWantsEdit(true);
   }
-  if (wantsEdit && !loading && !readOnly) {
+  if (wantsEdit && !loading) {
     setWantsEdit(false);
     setEditing(true);
   }
@@ -70,16 +70,6 @@ function Entry({ date, today, loading, content, onSaved, editRequest, readOnly }
   };
 
   if (loading) return <LoadingState message={t('Loading entry…')} />;
-
-  if (readOnly) {
-    return (
-      <section className="dy-entry" aria-label={t('Reflection')}>
-        {content
-          ? <div className="dy-prose markdown-body"><ReactMarkdown remarkPlugins={[remarkBreaks]}>{content}</ReactMarkdown></div>
-          : <p className="dy-none">{t('Nothing written for this day.')}</p>}
-      </section>
-    );
-  }
 
   if (editing) {
     return (
@@ -153,12 +143,12 @@ export default function DiaryPage({ date, today, yesterday, shared, reader = nul
       {shared && (
         <p className="dy-privacy" role="note">
           {reader
-            ? t('You’re reading {name}’s logs. Only the server’s owner can, and nothing here can be changed.', { name: reader })
-            : t('Everyone studying on this server shares one log history, and the server’s owner can read your summaries and anything you write.')}
+            ? t('You’re reading {name}’s daily summaries. What they write stays private to them.', { name: reader })
+            : t('Flashback shows what you write only to you. The server’s owner can see your daily summaries.')}
         </p>
       )}
 
-      <Entry date={date} today={today} loading={entryLoading} content={entry} onSaved={onSaved} editRequest={editRequest} readOnly={!!reader} />
+      {!reader && <Entry date={date} today={today} loading={entryLoading} content={entry} onSaved={onSaved} editRequest={editRequest} />}
 
       {summaryState === 'error' && <ErrorState error={t('Could not load the summary.')} />}
       {hasDay && (

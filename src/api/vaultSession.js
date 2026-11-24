@@ -61,8 +61,8 @@ export async function openVault({ onFatal } = {}) {
     }
 
     try {
-        const moved = await Diary.adoptLegacyFolder();
-        if (moved) console.log(`Moved ${moved} diary entr${moved === 1 ? "y" : "ies"} into the portable files.`);
+        const adopted = await Diary.adoptFiles();
+        if (adopted) console.log(`Moved ${adopted} diary entr${adopted === 1 ? "y" : "ies"} into the progress store.`);
     } catch (err) {
         console.error("Diary move failed (continuing; will retry next launch):", err?.stack || err);
     }

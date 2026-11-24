@@ -1,32 +1,18 @@
 import fs from "fs";
 import path from "path";
+import AdmZip from "adm-zip";
+import db from "../primitives/database.js";
 import * as Files from "../resources/files.js";
-import { withDocument } from "../resources/pathLock.js";
 import * as diaryRows from '../resources/db/diary.js';
 import * as statisticsRows from '../resources/db/statistics.js';
-import { getVaultPath, getAuthorString } from "../primitives/config.js";
-import { getAccount } from "../primitives/accounts.js";
-import { currentScope, isOwnerScope, currentAuthorString, OWNER_SCOPE } from "../../requestContext.js";
+import { getVaultPath } from "../primitives/config.js";
+import { currentScope, OWNER_SCOPE } from "../../requestContext.js";
 import { sealEmitter } from "../../seal/seal.js";
-import { LATEST_VERSION } from "../../config/updates/registry.js";
 import { LEARNING_REVIEWS } from "./srs.js";
 
 const DIARY_SCHEMA_VERSION = 2;
 const STRUGGLED_CAP = 10;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const ENTRY_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
-const DIARY_DIR = "_diary";
-
-/** The owner writes to _diary/owner/. Every other account writes to _diary/<accountId>/, and the folder sidecar names its author. */
-function folderOf(scope) {
-    if (isOwnerScope(scope)) return OWNER_SCOPE;
-    if (!/^[\w-]+$/.test(scope)) throw new Error(`Invalid diary scope: ${scope}`);
-    return scope;
-}
-
-const folderRel = (scope) => path.join(DIARY_DIR, folderOf(scope));
-const entryRel = (date, scope) => path.join(folderRel(scope), `${date}.md`);
-const sidecarRel = (scope) => path.join(folderRel(scope), ".flashback");
 
 function todayLocal() {
     const d = new Date();
@@ -49,18 +35,6 @@ function assertDate(date) {
 
 function _scope(explicit) {
     return explicit ?? currentScope();
-}
-
-function _ensureFolder(scope, createdBy) {
-    if (Files.readReserved(sidecarRel(scope)) !== null) return false;
-    const sidecar = {
-        formatVersion: LATEST_VERSION,
-        createdBy,
-        createdAt: new Date().toISOString(),
-        accountId: isOwnerScope(scope) ? null : scope,
-    };
-    Files.writeReserved(sidecarRel(scope), JSON.stringify(sidecar, null, 2) + "\n");
-    return true;
 }
 
 async function _streakAsOf(date, scope) {
@@ -163,84 +137,100 @@ export async function rebuildAll(scopeArg) {
     return count;
 }
 
-export function getEntry(date, scopeArg) {
-    const scope = _scope(scopeArg);
+/** An entry belongs to its writer. No function here takes the scope of another account. */
+export async function getEntry(date) {
+    return await diaryRows.getEntry(assertDate(date), currentScope());
+}
+
+export async function saveEntry(date, content) {
+    const scope = currentScope();
     assertDate(date);
-    return Files.readReserved(entryRel(date, scope));
+    const existed = await diaryRows.getEntry(date, scope) !== null;
+    const text = content ?? "";
+    const empty = text.trim() === "";
+    if (empty && !existed) return { created: false, empty };
+
+    await diaryRows.saveEntry(date, text, scope);
+    return { created: !existed, empty };
 }
 
-export async function saveEntry(date, content, scopeArg) {
-    const scope = _scope(scopeArg);
-    assertDate(date);
-    const rel = entryRel(date, scope);
-    return await withDocument(rel, async () => {
-        const existed = Files.readReserved(rel) !== null;
-        const text = content ?? "";
-        if (text.trim() === "" && !existed) return { created: false, empty: true };
-
-        const newFolder = _ensureFolder(scope, currentAuthorString(getAuthorString));
-        Files.writeReserved(rel, text);
-        await sealEmitter.edit(rel, newFolder ? [sidecarRel(scope)] : []);
-        return { created: !existed, empty: text.trim() === "" };
-    });
-}
-
-export async function list({ from = null, to = null, scope: scopeArg = null } = {}) {
-    const scope = _scope(scopeArg);
-    const inRange = (d) => (!from || d >= from) && (!to || d <= to);
-    const dates = new Map();
-    const day = (d) => dates.get(d) ?? dates.set(d, { date: d, hasSummary: false, hasEntry: false, reviews: 0, firstLine: null }).get(d);
-
-    for (const { day: d, total } of await statisticsRows.getReviewActivity(null, scope)) {
-        if (!inRange(d)) continue;
-        Object.assign(day(d), { hasSummary: true, reviews: total });
+export async function exportEntries() {
+    const zip = new AdmZip();
+    for (const { date, content } of await diaryRows.listEntries(currentScope())) {
+        zip.addFile(`${date}.md`, Buffer.from(content, "utf-8"));
     }
-    for (const name of Files.listReserved(folderRel(scope))) {
-        const m = name.match(ENTRY_RE);
-        if (!m || !inRange(m[1])) continue;
-        Object.assign(day(m[1]), { hasEntry: true, firstLine: firstLineOf(Files.readReserved(path.join(folderRel(scope), name))) });
+    return zip.toBuffer();
+}
+
+const _inRange = (d, from, to) => (!from || d >= from) && (!to || d <= to);
+const _newestFirst = (days) => days.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+/** The days that a person studied. It says nothing about what they wrote, so the vault's author may read it. */
+export async function listSummaries({ from = null, to = null, scope } = {}) {
+    const activity = await statisticsRows.getReviewActivity(null, _scope(scope));
+    return _newestFirst(activity
+        .filter(({ day }) => _inRange(day, from, to))
+        .map(({ day, total }) => ({ date: day, hasSummary: true, reviews: total })));
+}
+
+export async function list({ from = null, to = null } = {}) {
+    const blank = { hasSummary: false, hasEntry: false, reviews: 0, firstLine: null };
+    const days = new Map((await listSummaries({ from, to })).map((d) => [d.date, { ...blank, ...d }]));
+    for (const { date, content } of await diaryRows.listEntries(currentScope())) {
+        if (!_inRange(date, from, to)) continue;
+        days.set(date, { ...blank, date, ...days.get(date), hasEntry: true, firstLine: firstLineOf(content) });
     }
-    return [...dates.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    return _newestFirst([...days.values()]);
 }
 
-async function _authorOf(accountId) {
-    try {
-        const account = await getAccount(accountId);
-        if (account?.name && account?.email) return `${account.name} <${account.email}>`;
-    } catch { }
-    return null;
+function _filesIn(dir, scope, pattern) {
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir)
+        .map((name) => ({ scope, date: name.match(pattern)?.[1], file: path.join(dir, name) }))
+        .filter(({ date }) => date);
 }
 
-/** Moves the diary of an older build, {vault}/diary/, into _diary/. It never overwrites an entry, so a second run is harmless, and it keeps the old folder as diary.legacy. */
-export async function adoptLegacyFolder() {
+const _foldersIn = (dir) => (fs.existsSync(dir)
+    ? fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
+    : []);
+
+/**
+ * Older builds kept entries as files in {vault}/diary/, and then in workspace/_diary/.
+ * Copies each entry into the progress store, never over one that is there, and keeps the files as diary.legacy.
+ */
+export async function adoptFiles() {
     const legacy = path.join(getVaultPath(), "diary");
-    if (!fs.existsSync(legacy)) return 0;
+    const shared = Files.reservedPath("_diary");
+    if (!fs.existsSync(legacy) && !fs.existsSync(shared)) return 0;
 
-    const sources = [{ scope: OWNER_SCOPE, dir: path.join(legacy, "entries"), createdBy: getAuthorString() }];
-    const accountsDir = path.join(legacy, "accounts");
-    if (fs.existsSync(accountsDir)) {
-        for (const id of fs.readdirSync(accountsDir)) {
-            sources.push({ scope: id, dir: path.join(accountsDir, id, "entries"), createdBy: await _authorOf(id) });
+    const oldName = /^entry-(\d{4}-\d{2}-\d{2})\.md$/;
+    const entries = [
+        ..._foldersIn(shared).flatMap((id) => _filesIn(path.join(shared, id), id, /^(\d{4}-\d{2}-\d{2})\.md$/)),
+        ..._filesIn(path.join(legacy, "entries"), OWNER_SCOPE, oldName),
+        ..._foldersIn(path.join(legacy, "accounts"))
+            .flatMap((id) => _filesIn(path.join(legacy, "accounts", id, "entries"), id, oldName)),
+    ];
+    let adopted = 0;
+    await db.transaction(async () => {
+        for (const { scope, date, file } of entries) {
+            if (await diaryRows.addEntry(date, fs.readFileSync(file, "utf-8"), scope)) adopted++;
         }
-    }
+    })();
 
-    const written = [];
-    for (const { scope, dir, createdBy } of sources) {
-        if (!fs.existsSync(dir)) continue;
-        for (const name of fs.readdirSync(dir)) {
-            const m = name.match(/^entry-(\d{4}-\d{2}-\d{2})\.md$/);
-            if (!m) continue;
-            const rel = entryRel(m[1], scope);
-            if (Files.readReserved(rel) !== null) continue;
-            if (_ensureFolder(scope, createdBy)) written.push(sidecarRel(scope));
-            Files.writeReserved(rel, fs.readFileSync(path.join(dir, name), "utf-8"));
-            written.push(rel);
-        }
+    if (fs.existsSync(shared)) {
+        const tracked = fs.readdirSync(shared, { recursive: true })
+            .filter((name) => fs.statSync(path.join(shared, name)).isFile())
+            .map((name) => path.join("_diary", name));
+        _setAside(shared, legacy);
+        if (tracked.length) await sealEmitter.edit(tracked[0], [], tracked);
     }
-    if (written.length) await sealEmitter.edit(written[0], written.slice(1));
-    const moved = written.filter((p) => p.endsWith(".md")).length;
+    if (fs.existsSync(legacy)) _setAside(legacy, legacy);
+    return adopted;
+}
 
-    const target = fs.existsSync(`${legacy}.legacy`) ? `${legacy}.legacy-${Date.now()}` : `${legacy}.legacy`;
-    fs.renameSync(legacy, target);
-    return moved;
+/** Copies and then removes, because the workspace can be on another volume and a sync client can refuse a folder rename. */
+function _setAside(dir, legacy) {
+    const name = `${legacy}.legacy`;
+    fs.cpSync(dir, fs.existsSync(name) ? `${name}-${crypto.randomUUID().slice(0, 8)}` : name, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
 }

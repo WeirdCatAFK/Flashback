@@ -13,9 +13,10 @@ if (!vaultDir || process.argv.includes('--help')) {
 const dir = path.resolve(vaultDir);
 const outFile = path.resolve(out ?? `flashback-${path.basename(dir)}-${new Date().toISOString().slice(0, 10)}.zip`);
 try {
-    const { entries } = exportVault(dir, outFile);
+    const { entries, personalFile } = exportVault(dir, outFile);
     console.log(`Wrote ${entries} file(s) to ${outFile}`);
-    console.log('Copy it to the server and run: npm run vault:import -- <zip>');
+    if (personalFile) console.log(`Wrote everyone's progress and diary entries to ${personalFile}. Share it with nobody.`);
+    console.log('Copy them to the server and run: npm run vault:import -- <zip> [personal zip]');
 } catch (err) {
     console.error(`Export failed: ${err.message}`);
     process.exit(1);

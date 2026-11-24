@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { listDiary, getSummary, getEntry, rebuildSummaries, generateSummary } from '../../api/diary';
-import { getAccountLogs, getAccountLogSummary, getAccountLogEntry } from '../../api/accounts';
+import { getAccountLogs, getAccountLogSummary } from '../../api/accounts';
 import { todayIso, withToday } from './dates.js';
 
 const summaryStateFor = (err) => (err?.status === 404 ? 'none' : 'error');
@@ -9,7 +9,6 @@ const readersFor = (accountId) => (accountId
   ? {
       list: () => getAccountLogs(accountId),
       summary: (date) => getAccountLogSummary(accountId, date),
-      entry: (date) => getAccountLogEntry(accountId, date),
     }
   : { list: listDiary, summary: getSummary, entry: getEntry });
 
@@ -61,10 +60,12 @@ export default function useDiary(isActive, account = null) {
       .then((s) => { if (!ignore) { setSummary(s); setSummaryState('ready'); } })
       .catch((e) => { if (!ignore) { setSummary(null); setSummaryState(summaryStateFor(e)); } })
       .finally(() => { if (!ignore) loadDates(); });
-    setEntryLoading(true);
-    read.entry(selectedDate)
-      .then((r) => { if (!ignore) { setEntry(r.content ?? ''); setEntryLoading(false); } })
-      .catch(() => { if (!ignore) { setEntry(''); setEntryLoading(false); } });
+    if (read.entry) {
+      setEntryLoading(true);
+      read.entry(selectedDate)
+        .then((r) => { if (!ignore) { setEntry(r.content ?? ''); setEntryLoading(false); } })
+        .catch(() => { if (!ignore) { setEntry(''); setEntryLoading(false); } });
+    }
     return () => { ignore = true; };
   }, [selectedDate, visit, today, loadDates, read, accountId]);
 

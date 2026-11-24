@@ -151,7 +151,7 @@ router.get('/:id/logs', catchError(async (req, res) => {
     if (!target) return;
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
-    res.json(await Diary.list({ from, to, scope: scopeFor(target) }));
+    res.json(await Diary.listSummaries({ from, to, scope: scopeFor(target) }));
 }));
 
 router.get('/:id/logs/summary/:date', catchError(async (req, res) => {
@@ -160,12 +160,6 @@ router.get('/:id/logs/summary/:date', catchError(async (req, res) => {
     const summary = await Diary.getSummary(req.params.date, scopeFor(target));
     if (!summary) return res.status(404).json({ error: 'no summary for that date' });
     res.json(summary);
-}));
-
-router.get('/:id/logs/entry/:date', catchError(async (req, res) => {
-    const target = await logsTarget(req, res);
-    if (!target) return;
-    res.json({ date: req.params.date, content: Diary.getEntry(req.params.date, scopeFor(target)) ?? '' });
 }));
 
 router.post('/:id/tokens', catchError(async (req, res) => {

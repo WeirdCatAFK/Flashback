@@ -14,7 +14,7 @@ function Chevron({ dir }) {
   );
 }
 
-export default function DiaryRail({ title, picker, readOnly, days, today, selected, month, onMonth, onSelect, rebuilding, rebuilt, onRebuild }) {
+export default function DiaryRail({ title, picker, readOnly, days, today, selected, month, onMonth, onSelect, rebuilding, rebuilt, onRebuild, onExport }) {
   const { t, tp, locale, formatDay, formatWeekdayNarrow, formatNumber } = useT();
   const range = useMemo(() => monthRange(days, today), [days, today]);
   const { lead, cells } = useMemo(() => monthCells(month.y, month.m, days, { first: range.first, today }), [month, days, range.first, today]);
@@ -71,20 +71,21 @@ export default function DiaryRail({ title, picker, readOnly, days, today, select
         <div className="dy-key" aria-hidden="true">{t('Fewer')}<i data-l="0" /><i data-l="1" /><i data-l="2" /><i data-l="3" /><i data-l="4" />{t('More reviews')}</div>
       </div>
 
-      <div className="dy-label">{t('Written in {month}', { month: monthName })}</div>
-      <div className="dy-list">
+      {!readOnly && <div className="dy-label">{t('Written in {month}', { month: monthName })}</div>}
+      {!readOnly && <div className="dy-list">
         {written.length ? written.map((w) => (
           <button key={w.date} type="button" className={`dy-item${w.date === selected ? ' is-selected' : ''}`} onClick={() => onSelect(w.date)}>
             <span className="dy-item__date">{shortName(w.date)}</span>
             <span className="dy-item__text">{w.firstLine}</span>
           </button>
         )) : <p className="dy-none">{t('Nothing written this month.')}</p>}
-      </div>
+      </div>}
 
       {!readOnly && <div className="dy-foot">
         <button type="button" className="link-action" onClick={onRebuild} disabled={rebuilding} title={t('Rebuild every day’s summary from your review history')}>
           {rebuilding ? t('Rebuilding…') : t('Rebuild summaries from history')}
         </button>
+        <button type="button" className="link-action" onClick={onExport} title={t('Every entry you wrote, as Markdown files')}>{t('Download my entries')}</button>
         {rebuilt && <span className="dy-rebuilt" role="status">{t('Rebuilt from your review history.')}</span>}
       </div>}
     </aside>

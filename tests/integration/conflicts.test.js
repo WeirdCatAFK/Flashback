@@ -121,10 +121,9 @@ describe('Concurrent writes', () => {
 
             const sync = Doctor.syncIndex({ sealDrift: false });
             const first = await Promise.race([sync.then(() => 'sync'), tick(1500).then(() => 'still waiting')]);
-            assert.equal(first, 'still waiting', 'the sync must not rewrite the index under a running edit');
-
             release();
             await Promise.all([edit, sync]);
+            assert.equal(first, 'still waiting', 'the sync must not rewrite the index under a running edit');
         });
     });
 

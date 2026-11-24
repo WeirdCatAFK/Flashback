@@ -220,10 +220,13 @@ describe('Per-user SRS', () => {
             await asAccount(rita, () => Diary.saveEntry(day, 'rita'));
             await asAuthor(author, () => Diary.saveEntry(day, 'owner'));
 
-            const root = path.join(getWorkspacePath(), '_diary');
-            assert.equal(fs.readFileSync(path.join(root, 'owner', `${day}.md`), 'utf-8'), 'owner');
-            assert.equal(fs.readFileSync(path.join(root, rita.id, `${day}.md`), 'utf-8'), 'rita',
-                'everyone else writes under their own account folder');
+            const rows = await db.prepare('SELECT account_id, content FROM progress.DiaryEntries WHERE date = ? ORDER BY content').all(day);
+            assert.deepEqual(rows, [
+                { account_id: OWNER_SCOPE, content: 'owner' },
+                { account_id: rita.id, content: 'rita' },
+            ], 'everyone else writes under their own account');
+            assert.equal(await asAccount(rita, () => Diary.getEntry(day)), 'rita');
+            assert.equal(await asAuthor(author, () => Diary.getEntry(day)), 'owner');
 
             const ritaSummary = await asAccount(rita, () => Diary.generateSummary(day));
             const ownerSummary = await asAuthor(author, () => Diary.generateSummary(day));

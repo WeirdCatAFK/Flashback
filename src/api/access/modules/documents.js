@@ -562,7 +562,7 @@ export async function remove(relativePath, isFolder = false) {
 }
 
 async function _deleteLocked(relativePath, isFolder = false) {
-    const absPath = Files.safePath(relativePath);
+    const absPath = Files.entryPath(relativePath);
 
     const sealExtra = isFolder
         ? await _gatherFolderContents(relativePath, absPath)
@@ -1377,7 +1377,9 @@ export async function processZipPackage(zipFilePath, targetRelPath = "") {
 export function exportPackage(relativePath) {
     const sourcePath = Files.safePath(relativePath);
     const zip = new AdmZip();
-    zip.addLocalFolder(sourcePath, path.basename(sourcePath));
+    const parent = path.dirname(sourcePath);
+    zip.addLocalFolder(sourcePath, path.basename(sourcePath), (entry) =>
+        !Files.isReserved(path.join(parent, entry)) && !entry.split(/[\\/]/).includes('.git'));
     const zipPath = path.join(os.tmpdir(), `${path.basename(sourcePath)}_${Date.now()}.zip`);
     zip.writeZip(zipPath);
     return zipPath;

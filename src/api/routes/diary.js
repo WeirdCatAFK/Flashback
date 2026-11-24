@@ -15,7 +15,7 @@ router.use((req, res, next) => {
             error: 'Diary access for AI assistants is disabled. Enable it in Flashback → Config → AI Assistant.',
         });
     }
-    if (access === 'summaries' && normalizePath(req.path).startsWith('/entry')) {
+    if (access === 'summaries' && /^\/(entry|export)/.test(normalizePath(req.path))) {
         return res.status(403).json({
             error: 'AI assistants can read your daily summaries but not your written diary entries. Change this in Flashback → Config → AI Assistant.',
         });
@@ -55,10 +55,14 @@ router.get('/summary/:date', catchError(async (req, res) => {
     res.json(summary);
 }));
 
-router.get('/entry/:date', catchError((req, res) => {
+router.get('/entry/:date', catchError(async (req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
-    res.json({ date, content: Diary.getEntry(date) ?? '' });
+    res.json({ date, content: await Diary.getEntry(date) ?? '' });
+}));
+
+router.get('/export', catchError(async (req, res) => {
+    res.attachment('flashback-diary.zip').send(await Diary.exportEntries());
 }));
 
 router.put('/entry/:date', catchError(async (req, res) => {
