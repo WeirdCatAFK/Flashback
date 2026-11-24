@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
-import { readFile, updateMetadata, fetchRaw } from '../../../../api/documents';
+import { mergeMetadata, readFile, fetchRaw } from '../../../../api/documents';
 import { useUiZoomChange } from '../../../../utils/uiZoom';
 import { useT } from '../../../../translations/index';
 import { leanTo, applyStart, renditionTheme, clampFont, FONT_DEFAULT } from './epubTheme.js';
@@ -275,11 +275,10 @@ export default function useEpubBook({
     const savedPath = pathRef.current;
     if (loadedPathRef.current !== savedPath) return;
     try {
-      let baseMeta = {};
-      try { baseMeta = (await readFile(savedPath)).metadata ?? {}; } catch { }
-      if (metaTransform) baseMeta = metaTransform(baseMeta);
-      const nextMeta = { ...baseMeta, highlights: highlightsRef.current };
-      await updateMetadata(savedPath, nextMeta);
+      const nextMeta = await mergeMetadata(savedPath, (meta) => ({
+        ...(metaTransform ? metaTransform(meta) : meta),
+        highlights: highlightsRef.current,
+      }));
       onHighlightsChange?.(savedPath, highlightsRef.current);
       onSidecarRefresh?.(savedPath, nextMeta);
     } catch { }

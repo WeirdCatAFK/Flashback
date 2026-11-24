@@ -39,7 +39,7 @@ import { useT } from "./translations/index";
 import { diaryLabels, isSharedVault } from "./utils/diaryLabels.js";
 import useConnection from "./hooks/useConnection.js";
 import { SessionProvider } from "./session.jsx";
-import { getPref, setPref, setActiveVaultScope } from "./utils/prefs.js";
+import { getPref, setPref } from "./utils/prefs.js";
 
 const ALL_VIEW_IDS = [
   "documents",
@@ -170,7 +170,6 @@ export default function App() {
 
   useEffect(() => {
     if (!connection) return;
-    setActiveVaultScope(connection.id ?? null);
     setActiveView((current) => {
       const item = NAV_ITEMS.find((n) => n.id === current);
       return item?.remoteOnly && connection.kind !== "remote"

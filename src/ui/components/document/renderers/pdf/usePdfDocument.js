@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { readFile, updateMetadata, rawDocumentUrl } from '../../../../api/documents';
+import { mergeMetadata, readFile, rawDocumentUrl } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';
 import { getUiZoom } from '../../../../utils/uiZoom';
 import { findScroller } from '../scroller';
@@ -111,11 +111,10 @@ export default function usePdfDocument({ path, saveRef, onHighlightsChange, onSi
     const savedPath = pathRef.current;
     if (loadedPathRef.current !== savedPath) return;
     try {
-      let baseMeta = {};
-      try { baseMeta = (await readFile(savedPath)).metadata ?? {}; } catch { }
-      if (metaTransform) baseMeta = metaTransform(baseMeta);
-      const nextMeta = { ...baseMeta, highlights: highlightsRef.current };
-      await updateMetadata(savedPath, nextMeta);
+      const nextMeta = await mergeMetadata(savedPath, (meta) => ({
+        ...(metaTransform ? metaTransform(meta) : meta),
+        highlights: highlightsRef.current,
+      }));
       onHighlightsChange?.(savedPath, highlightsRef.current);
       onSidecarRefresh?.(savedPath, nextMeta);
     } catch { }

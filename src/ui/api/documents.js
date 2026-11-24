@@ -1,5 +1,7 @@
 import {
   request,
+  requestWithEtag,
+  isStale,
   upload,
   uploadWithProgress,
   getBaseUrl,
@@ -21,6 +23,23 @@ export const getSidecar = (path, isFolder = false) =>
     `/api/documents/sidecar?path=${encodeURIComponent(path)}&isFolder=${isFolder}`,
   );
 export const getGraph = () => request("GET", "/api/documents/graph");
+
+/** Reads the sidecar, applies transform and writes it back with ifMatch. A concurrent write makes the server answer 409, and the merge runs again on the fresh sidecar. */
+export async function mergeMetadata(path, transform, isFolder = false) {
+  for (let attempt = 1; ; attempt++) {
+    const { data, etag } = await requestWithEtag(
+      "GET",
+      `/api/documents/sidecar?path=${encodeURIComponent(path)}&isFolder=${isFolder}`,
+    );
+    const next = transform(data ?? {});
+    try {
+      await updateMetadata(path, next, isFolder, { ifMatch: etag ?? undefined });
+      return next;
+    } catch (err) {
+      if (!isStale(err) || attempt >= 3) throw err;
+    }
+  }
+}
 
 export const createFolder = (name, parentPath) =>
   request("POST", "/api/documents/folder", { name, parentPath });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { readFile, updateMetadata, fetchYoutubeTranscript } from '../../../../api/documents';
+import { mergeMetadata, readFile, fetchYoutubeTranscript } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';
 import { parseVideoMeta, transcriptFrom, newMarker, withMarker } from './player.js';
 import { groupCues, placeHighlights, paraIndexAt, cueAt, timeAtOffset, rangeOverlapping } from './transcript.js';
@@ -95,10 +95,7 @@ export default function useYoutubeDocument({ path, reloadTick, saveRef, highligh
     const savedPath = pathRef.current;
     if (loadedPathRef.current !== savedPath) return;
     try {
-      let baseMeta = {};
-      try { baseMeta = (await readFile(savedPath)).metadata ?? {}; } catch { }
-      const nextMeta = { ...baseMeta, highlights: highlightsRef.current };
-      await updateMetadata(savedPath, nextMeta);
+      const nextMeta = await mergeMetadata(savedPath, (meta) => ({ ...meta, highlights: highlightsRef.current }));
       onHighlightsChange?.(savedPath, highlightsRef.current);
       onSidecarRefresh?.(savedPath, nextMeta);
     } catch { }

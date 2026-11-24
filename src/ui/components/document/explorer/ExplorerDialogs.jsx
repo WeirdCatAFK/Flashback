@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 import {
   getEntityTags,
   getTags,
-  getSidecar,
-  updateMetadata,
+  mergeMetadata,
   clipUrl,
   clipYoutube,
 } from "../../../api/documents";
@@ -31,12 +30,7 @@ export function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
   const apply = async (color) => {
     setSaving(true);
     try {
-      const sidecar = await getSidecar(path, true);
-      await updateMetadata(
-        path,
-        { ...(sidecar || {}), swatchColor: color },
-        true,
-      );
+      await mergeMetadata(path, (meta) => ({ ...meta, swatchColor: color }), true);
       onSaved();
     } catch {
       setSaving(false);
@@ -124,12 +118,7 @@ export function FolderTagsModal({ path, onClose }) {
     setSaving(true);
     setError(null);
     try {
-      const sidecar = await getSidecar(path, true);
-      await updateMetadata(
-        path,
-        { ...sidecar, tags: directTags, excludedTags },
-        true,
-      );
+      await mergeMetadata(path, (meta) => ({ ...meta, tags: directTags, excludedTags }), true);
       onClose();
     } catch {
       setError(t("Save failed."));

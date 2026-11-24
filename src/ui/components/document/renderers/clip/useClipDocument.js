@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { readFile, updateMetadata } from '../../../../api/documents';
+import { mergeMetadata, readFile } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';
 import { generateHighlightId } from '../highlightId.js';
 import { rewriteMedia } from './media.js';
@@ -67,10 +67,7 @@ export default function useClipDocument({ path, reloadTick, saveRef, highlightRe
     const savedPath = pathRef.current;
     if (loadedPathRef.current !== savedPath) return;
     try {
-      let baseMeta = {};
-      try { baseMeta = (await readFile(savedPath)).metadata ?? {}; } catch { }
-      const nextMeta = { ...baseMeta, highlights: highlightsRef.current };
-      await updateMetadata(savedPath, nextMeta);
+      const nextMeta = await mergeMetadata(savedPath, (meta) => ({ ...meta, highlights: highlightsRef.current }));
       onHighlightsChange?.(savedPath, highlightsRef.current);
       onSidecarRefresh?.(savedPath, nextMeta);
     } catch { }

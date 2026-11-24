@@ -62,6 +62,17 @@ export async function request(method, path, body = null) {
   return res.json();
 }
 
+export async function requestWithEtag(method, path) {
+  const options = { method, headers: authHeaders() };
+  const res = await fetch(`${baseUrl}${path}`, options);
+  if (res.status === 404) return { data: null, etag: null };
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status });
+  }
+  return { data: await res.json(), etag: res.headers.get("ETag") };
+}
+
 export function isStale(err) {
   return err?.status === 409 && err?.code === "stale";
 }

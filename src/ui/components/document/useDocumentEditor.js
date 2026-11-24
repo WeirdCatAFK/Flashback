@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { readFile, updateMetadata } from "../../api/documents";
+import { mergeMetadata, readFile } from "../../api/documents";
 import { useDataInvalidation } from "../../utils/dataBus";
 import { cleanCover } from "../../../shared/covers.js";
 import {
@@ -76,12 +76,7 @@ export default function useDocumentEditor({ activeTab, openTabs, relocation }) {
   const handleTagsChange = useCallback(
     async (newTags, newExcludedTags) => {
       if (!activeTab) return;
-      const meta = (await readFile(activeTab)).metadata ?? {};
-      await updateMetadata(
-        activeTab,
-        { ...meta, tags: newTags, excludedTags: newExcludedTags },
-        false,
-      );
+      await mergeMetadata(activeTab, (meta) => ({ ...meta, tags: newTags, excludedTags: newExcludedTags }));
       setTags(newTags);
       setExcludedTags(newExcludedTags);
     },

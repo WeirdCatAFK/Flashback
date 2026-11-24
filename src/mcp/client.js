@@ -14,9 +14,18 @@ export async function request(method, path, body = null) {
   const res = await fetch(`${baseUrl()}${path}`, options);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status });
+    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status, code: err.code });
   }
   return res.json();
+}
+
+export async function requestWithEtag(method, path) {
+  const res = await fetch(`${baseUrl()}${path}`, { method, headers: authHeaders() });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status });
+  }
+  return { data: await res.json(), etag: res.headers.get('ETag') };
 }
 
 export async function requestBuffer(path) {

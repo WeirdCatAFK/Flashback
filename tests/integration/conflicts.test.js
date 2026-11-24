@@ -24,7 +24,8 @@ const Decks = await import('../../src/api/access/modules/decks.js');
 const deckRows = await import('../../src/api/access/resources/db/decks.js');
 const documentRows = await import('../../src/api/access/resources/db/documents.js');
 const { default: db } = await import('../../src/api/access/primitives/database.js');
-const { PathLock, isIdle } = await import('../../src/api/access/resources/pathLock.js');
+const { PathLock, isIdle, withDocument } = await import('../../src/api/access/resources/pathLock.js');
+const Doctor = await import('../../src/api/access/modules/doctor.js');
 const { sealTools, sealEmitter } = await import('../../src/api/seal/seal.js');
 const { getWorkspacePath } = await import('../../src/api/access/primitives/config.js');
 const { ensureManifest } = await import('../../src/api/access/primitives/vault.js');
@@ -111,6 +112,19 @@ describe('Concurrent writes', () => {
             await lock.withDocument('x.md', async () => {});
             assert.ok(lock.isIdle(), 'a thrown body must not leave the lock held');
             assert.equal(lock._perPath.size, 0, 'the per-path chain must not grow without bound');
+        });
+
+        it('makes a Doctor sync wait for an edit in flight', async () => {
+            let release;
+            const edit = withDocument(docRel, () => new Promise((r) => { release = r; }));
+            await tick(1);
+
+            const sync = Doctor.syncIndex({ sealDrift: false });
+            const first = await Promise.race([sync.then(() => 'sync'), tick(1500).then(() => 'still waiting')]);
+            assert.equal(first, 'still waiting', 'the sync must not rewrite the index under a running edit');
+
+            release();
+            await Promise.all([edit, sync]);
         });
     });
 

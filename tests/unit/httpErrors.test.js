@@ -33,6 +33,15 @@ describe('statusForError', () => {
         assert.equal(status, 500);
     });
 
+    it('hides an OS error message, which names absolute paths, behind a generic 500', () => {
+        const err = Object.assign(new Error("ENOENT: no such file or directory, open 'C:\\Users\\someone\\vault\\a.md'"), {
+            code: 'ENOENT', syscall: 'open', path: 'C:\\Users\\someone\\vault\\a.md',
+        });
+        const { status, body } = statusForError(err);
+        assert.equal(status, 500);
+        assert.ok(!body.error.includes('someone'), 'no path reaches the client');
+    });
+
     it('falls back to 500 with the message, and survives a non-Error', () => {
         assert.deepEqual(statusForError(new Error('boom')), { status: 500, body: { error: 'boom' } });
         assert.equal(statusForError(undefined).status, 500);

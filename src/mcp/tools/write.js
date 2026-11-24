@@ -2,7 +2,7 @@ import { z } from 'zod';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import nodePath from 'node:path';
-import { request, requestBuffer, upload } from '../client.js';
+import { request, requestBuffer, requestWithEtag, upload } from '../client.js';
 import { DECK_COLORS } from '../../shared/deckColors.js';
 import { asText, clip as clipText } from './shape.js';
 
@@ -387,9 +387,15 @@ export function registerWriteTools(server) {
     },
     async ({ path, tags, isFolder }) => {
       try {
-        const sidecar = await request('GET', `/api/documents/sidecar?path=${encodeURIComponent(path)}&isFolder=${isFolder}`);
-        const merged = { ...sidecar, tags };
-        await request('PUT', '/api/documents/metadata', { path, metadata: merged, isFolder });
+        for (let attempt = 1; ; attempt++) {
+          const { data, etag } = await requestWithEtag('GET', `/api/documents/sidecar?path=${encodeURIComponent(path)}&isFolder=${isFolder}`);
+          try {
+            await request('PUT', '/api/documents/metadata', { path, metadata: { ...data, tags }, isFolder, ifMatch: etag ?? undefined });
+            break;
+          } catch (err) {
+            if (err.status !== 409 || err.code !== 'stale' || attempt >= 3) throw err;
+          }
+        }
         return asText({ ok: true, path, tags });
       } catch (err) {
         return asError(err);

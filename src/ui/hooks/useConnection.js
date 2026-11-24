@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { initClient, getConnectionId } from '../api/client.js';
+import { setActiveVaultScope } from '../utils/prefs.js';
 
 const FALLBACK = { kind: 'local', id: null, label: null, url: 'http://localhost:50500', token: null };
 
@@ -10,6 +11,7 @@ export default function useConnection() {
     const apply = useCallback((next) => {
         if (!next?.url) return;
         initClient(next.url, next.token ?? null);
+        setActiveVaultScope(next.id ?? null);
         setConnection(next);
         setConnectionId(getConnectionId());
     }, []);

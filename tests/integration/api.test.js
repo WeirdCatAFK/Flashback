@@ -278,6 +278,44 @@ describe('Flashback API', () => {
             });
             assert.equal(res.status, 403);
         });
+
+        it('lets an allowed origin read the ETag header', async () => {
+            const res = await rawFetch(probe(), {
+                method: 'OPTIONS',
+                headers: { Origin: 'http://localhost:51234', 'Access-Control-Request-Method': 'GET' },
+            });
+            assert.match(res.headers.get('access-control-expose-headers') ?? '', /ETag/i);
+        });
+    });
+
+    describe('Sidecar writes with ifMatch', () => {
+        const FOLDER = 'IfMatchTest';
+        const DOC = `${FOLDER}/note.md`;
+        const sidecarUrl = () => `${baseUrl}/api/documents/sidecar?path=${encodeURIComponent(DOC)}&isFolder=false`;
+        const writeMeta = (metadata, ifMatch) =>
+            put(`${baseUrl}/api/documents/metadata`, { path: DOC, metadata, isFolder: false, ifMatch });
+
+        before(async () => {
+            await createFolder(FOLDER);
+            await createFile('note.md', FOLDER);
+        });
+
+        it('refuses a write based on an old sidecar, so a concurrent change survives', async () => {
+            const first = await fetch(sidecarUrl());
+            const etag = first.headers.get('etag');
+            const sidecar = await first.json();
+            assert.ok(etag, 'the sidecar read carries an ETag');
+
+            const winner = await writeMeta({ ...sidecar, tags: ['winner'] }, etag);
+            assert.equal(winner.status, 200);
+
+            const loser = await writeMeta({ ...sidecar, tags: ['loser'] }, etag);
+            assert.equal(loser.status, 409);
+            assert.equal((await loser.json()).code, 'stale');
+
+            const now = await (await fetch(sidecarUrl())).json();
+            assert.deepEqual(now.tags, ['winner']);
+        });
     });
 
 

@@ -1,4 +1,7 @@
-/** A request without an Origin header passes, because no browser sent it. The API token gates it. */
+/**
+ * A request without an Origin header passes, because no browser sent it. The API token gates it.
+ * A refused origin gets 403, not just a missing header, because a simple cross-origin POST runs without a preflight.
+ */
 import { getAllowedOrigins } from '../access/primitives/config.js';
 
 const ALLOWED_HEADERS = [
@@ -32,6 +35,7 @@ export default (req, res, next) => {
     res.header('Access-Control-Allow-Origin', origin);
     res.header('Vary', 'Origin');
     res.header('Access-Control-Allow-Headers', ALLOWED_HEADERS);
+    res.header('Access-Control-Expose-Headers', 'ETag');
 
     if (req.method === 'OPTIONS') {
         res.header('Access-Control-Allow-Methods', ALLOWED_METHODS);

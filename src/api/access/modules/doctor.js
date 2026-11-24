@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import * as Files from '../resources/files.js';
+import { withStructure } from '../resources/pathLock.js';
 import * as categoryRows from '../resources/db/categories.js';
 import * as documentRows from '../resources/db/documents.js';
 import * as flashcardRows from '../resources/db/flashcards.js';
@@ -129,7 +130,11 @@ async function _diffDocument(meta, dbDoc) {
     return reasons;
 }
 
-export async function syncIndex({ sealDrift = true } = {}) {
+export async function syncIndex(options) {
+    return await withStructure(() => _syncIndexLocked(options));
+}
+
+async function _syncIndexLocked({ sealDrift = true } = {}) {
     const report = await checkIndex();
     if (report.db.integrity !== 'ok') {
         throw new Error(`Database integrity check failed (${report.db.integrity}). Sync cannot proceed — rebuild the index from files instead.`);
@@ -224,6 +229,10 @@ export async function syncIndex({ sealDrift = true } = {}) {
 }
 
 export async function rebuildIndex() {
+    return await withStructure(() => _rebuildIndexLocked());
+}
+
+async function _rebuildIndexLocked() {
     await sealEmitter.flushEdits();
     const walk = Files.walkWorkspace();
     const warnings = [];

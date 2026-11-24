@@ -13,5 +13,13 @@ export function statusForError(err) {
         if (err.etag !== undefined) body.etag = err.etag;
         return { status: err.status, body };
     }
+    if (isSystemError(err)) {
+        return { status: 500, body: { error: 'The server could not read or write a vault file.' } };
+    }
     return { status: 500, body: { error: err?.message ?? 'Internal server error' } };
+}
+
+/** An OS error message names absolute paths and the account's home folder, so only the server log keeps it. */
+function isSystemError(err) {
+    return typeof err?.syscall === 'string' || typeof err?.path === 'string' || /^E[A-Z]+$/.test(err?.code ?? '');
 }
