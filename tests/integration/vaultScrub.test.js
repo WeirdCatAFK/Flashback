@@ -60,7 +60,7 @@ describe('erasing the diary from the Seal history', () => {
 
     it('drops the diary, keeps every other commit and leaves a full backup outside the workspace', async () => {
         const tip = (await git.log({ fs, dir, depth: 1 }))[0].commit;
-        const { commits, backup } = scrubDiary(vault);
+        const { commits, backup } = await scrubDiary(vault);
         assert.equal(commits, 3);
         await assertErased();
 
@@ -73,7 +73,7 @@ describe('erasing the diary from the Seal history', () => {
         const kept = execFileSync('git', ['--git-dir', backup, 'log', '--format=%s'], { encoding: 'utf-8' });
         assert.equal(kept.trim().split('\n').length, 6);
 
-        assert.deepEqual(scrubDiary(vault), { commits: 0, backup: null }, 'a second run does nothing');
+        assert.deepEqual(await scrubDiary(vault), { commits: 0, backup: null }, 'a second run does nothing');
         assert.equal(fs.readdirSync(vault).length, 2, 'and makes no second backup');
 
         await commit({ 'c.md': 'c' }, 'create: c.md');
@@ -84,7 +84,7 @@ describe('erasing the diary from the Seal history', () => {
     it('erases packed objects too', async () => {
         sys('repack', '-a', '-d', '-q');
         sys('prune-packed', '-q');
-        scrubDiary(vault);
+        await scrubDiary(vault);
         await assertErased();
     });
 
@@ -93,15 +93,27 @@ describe('erasing the diary from the Seal history', () => {
         await git.checkout({ fs, dir, ref: tip, force: true });
         sys('branch', 'other', 'HEAD~2');
         sys('branch', 'before-the-diary', 'HEAD~5');
-        scrubDiary(vault);
+        await scrubDiary(vault);
         assert.ok(!everyObject().includes(SECRET));
         assert.equal((await messages()).length, 4);
         sys('fsck', '--strict');
     });
 
-    it('refuses while the entries are still files in the workspace', () => {
+    it('puts the old history back when it fails midway, so that a second run starts over', async () => {
+        const bad = path.join(dir, '.git', 'objects', 'pack', 'pack-bad.idx');
+        fs.mkdirSync(path.dirname(bad), { recursive: true });
+        fs.writeFileSync(bad, Buffer.alloc(2048));
+        await assert.rejects(() => scrubDiary(vault), /Unknown pack index/);
+        fs.rmSync(bad);
+        assert.equal((await messages()).length, 6);
+
+        assert.equal((await scrubDiary(vault)).commits, 3);
+        await assertErased();
+    });
+
+    it('refuses while the entries are still files in the workspace', async () => {
         fs.mkdirSync(path.join(dir, '_diary'));
-        assert.throws(() => scrubDiary(vault), /Open the vault once/);
-        assert.throws(() => scrubDiary(ROOT), /No Seal history/);
+        await assert.rejects(() => scrubDiary(vault), /Open the vault once/);
+        await assert.rejects(() => scrubDiary(ROOT), /No Seal history/);
     });
 });

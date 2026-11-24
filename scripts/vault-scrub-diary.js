@@ -11,7 +11,7 @@ if (!vaultDir || process.argv.includes('--help')) {
 }
 
 try {
-    const { commits, backup } = scrubDiary(path.resolve(vaultDir));
+    const { commits, backup } = await scrubDiary(path.resolve(vaultDir));
     if (!commits) {
         console.log('The Seal history holds no diary.');
     } else {
