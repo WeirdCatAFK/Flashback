@@ -5,10 +5,11 @@ import * as documentRows from '../resources/db/documents.js';
 import * as flashcardRows from '../resources/db/flashcards.js';
 import * as highlightRows from '../resources/db/highlights.js';
 import db from '../primitives/database.js';
+import { resolveTextAndContext, listOf } from './highlightText.js';
 
 export function getHighlights(relPath) {
     const sidecar = Files.getMetadata(relPath, false);
-    return sidecar?.highlights ?? [];
+    return listOf(sidecar?.highlights);
 }
 
 export async function listAnnotated({ path = null, color = null, uncardedOnly = false } = {}) {
@@ -17,11 +18,11 @@ export async function listAnnotated({ path = null, color = null, uncardedOnly = 
 
     for (const relPath of paths) {
         const sidecar = Files.getMetadata(relPath, false);
-        const highlights = sidecar?.highlights ?? [];
+        const highlights = listOf(sidecar?.highlights);
         if (!highlights.length) continue;
 
         const anchored = new Map();
-        for (const fc of sidecar?.flashcards ?? []) {
+        for (const fc of listOf(sidecar?.flashcards)) {
             const loc = fc?.vanillaData?.location;
             if (loc?.type === 'highlight' && loc.id && fc.globalHash) {
                 if (!anchored.has(loc.id)) anchored.set(loc.id, new Set());
@@ -37,10 +38,10 @@ export async function listAnnotated({ path = null, color = null, uncardedOnly = 
         for (const h of highlights) {
             if (color && h.color !== color) continue;
             const cardHashes = new Set(anchored.get(h.id) ?? []);
-            for (const ch of h.cardHashes ?? []) cardHashes.add(ch);
+            for (const ch of listOf(h.cardHashes)) cardHashes.add(ch);
             if (uncardedOnly && cardHashes.size > 0) continue;
 
-            const { text, context } = _resolveTextAndContext(h, body);
+            const { text, context } = resolveTextAndContext(h, body);
             results.push({
                 id: h.id,
                 documentPath: relPath,
@@ -57,33 +58,6 @@ export async function listAnnotated({ path = null, color = null, uncardedOnly = 
     }
 
     return results.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
-}
-
-function _resolveTextAndContext(h, body) {
-    const CONTEXT = 200;
-    let text = typeof h.text === 'string' && h.text.length ? h.text : null;
-    let start = null, end = null;
-
-    if (body != null) {
-        const hasOffsets = Number.isFinite(h.start) && Number.isFinite(h.end)
-            && h.end > h.start && h.end <= body.length;
-        if (hasOffsets && (h.type ?? 'text_offset') === 'text_offset') {
-            start = h.start;
-            end = h.end;
-            if (!text) text = body.slice(start, end);
-        } else if (text) {
-            const idx = body.indexOf(text);
-            if (idx !== -1) { start = idx; end = idx + text.length; }
-        }
-    }
-
-    let context = null;
-    if (body != null && start !== null) {
-        const from = Math.max(0, start - CONTEXT);
-        const to = Math.min(body.length, end + CONTEXT);
-        context = (from > 0 ? '…' : '') + body.slice(from, to) + (to < body.length ? '…' : '');
-    }
-    return { text, context };
 }
 
 export async function createHighlight(relPath, data) {
@@ -107,7 +81,7 @@ async function _createHighlightLocked(relPath, data) {
 
     return await db.transaction(async () => {
         const sidecar = Files.getMetadata(relPath, false) ?? {};
-        const highlights = [...(sidecar.highlights ?? []), highlight];
+        const highlights = [...listOf(sidecar.highlights), highlight];
         Files.writeMetadata(relPath, { ...sidecar, highlights }, false);
 
         const doc = await documentRows.getByPath(relPath);
@@ -137,7 +111,7 @@ async function _updateHighlightLocked(relPath, hash, data, ifMatch) {
     return await db.transaction(async () => {
         const sidecar = Files.getMetadata(relPath, false) ?? {};
         let updated = null;
-        const highlights = (sidecar.highlights ?? []).map(h => {
+        const highlights = listOf(sidecar.highlights).map(h => {
             if (h.id !== hash) return h;
             if (ifMatch && Files.entityEtag(h) !== ifMatch) {
                 throw Object.assign(
@@ -162,7 +136,7 @@ export async function deleteHighlight(relPath, hash) {
 async function _deleteHighlightLocked(relPath, hash) {
     return await db.transaction(async () => {
         const sidecar = Files.getMetadata(relPath, false) ?? {};
-        const highlights = (sidecar.highlights ?? []).filter(h => h.id !== hash);
+        const highlights = listOf(sidecar.highlights).filter(h => h.id !== hash);
         Files.writeMetadata(relPath, { ...sidecar, highlights }, false);
         await highlightRows.remove(hash);
     })();
@@ -180,7 +154,7 @@ export async function backfillCardAnchors() {
         for (const [relPath, cards] of byDocument) {
             let sidecar;
             try { sidecar = Files.getMetadata(relPath, false); } catch { continue; }
-            const anchors = new Map((sidecar?.flashcards ?? []).map((fc) => [fc?.globalHash, fc?.vanillaData?.location]));
+            const anchors = new Map(listOf(sidecar?.flashcards).map((fc) => [fc?.globalHash, fc?.vanillaData?.location]));
             for (const card of cards) {
                 const loc = anchors.get(card.global_hash);
                 if (loc?.type !== 'highlight' || typeof loc.id !== 'string') continue;

@@ -1635,7 +1635,13 @@ async function _syncTags(nodeId, tagNames) {
  * A sidecar's frozen schedule seeds only a card that has no progress row.
  * Delete PROGRESS_KEYS from the payload, because cardProgress.write runs on any defined key.
  */
-async function _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
+async function _syncDocumentFlashcards(documentId, cardList, docNodeId = null) {
+    if (!Array.isArray(cardList)) {
+        throw Object.assign(new Error('The flashcards field of this sidecar is not a list. Fix the file, then run the Vault Doctor.'), {
+            status: 422, code: 'malformed_sidecar',
+        });
+    }
+    const flashcardsData = cardList.filter((fc) => fc && typeof fc === 'object' && typeof fc.globalHash === 'string');
     const existing = await flashcardRows.getByDocument(documentId, OWNER_SCOPE);
     const existingMap = new Map(existing.map(f => [f.global_hash, f]));
     const incomingHashes = new Set();
